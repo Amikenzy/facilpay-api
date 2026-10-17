@@ -26,6 +26,9 @@ whether it is required in production.
 | `TWO_FACTOR_ENCRYPTION_KEY` | Key used to encrypt 2FA secrets | *(placeholder)* | **Yes** | a long random string |
 | `LOGIN_MAX_ATTEMPTS` | Failed login attempts before lockout | `5` | No | `5` |
 | `LOGIN_LOCK_DURATION_MINUTES` | Minutes an account stays locked | `15` | No | `15` |
+| `WEBAUTHN_RP_ID` | WebAuthn Relying Party ID (domain) | Hostname from `APP_URL` | No | `facilpay.com` |
+| `WEBAUTHN_ORIGIN` | WebAuthn expected origin | `APP_URL` | No | `https://app.facilpay.com` |
+| `WEBAUTHN_RP_NAME` | WebAuthn Relying Party display name | `FacilPay` | No | `FacilPay` |
 
 ## Database
 

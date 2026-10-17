@@ -14,6 +14,7 @@ import type { Response } from 'express';
 import { Invoice, InvoiceStatus } from './invoice.entity';
 import { InvoiceLineItem } from './invoice-line-item.entity';
 import { CreateInvoiceDto, UpdateInvoiceDto } from './dto/invoice.dto';
+import { ProductsService } from '../products/products.service';
 import { EmailNotificationService } from '../notifications/email-notification.service';
 import { PaymentsService } from '../payments/payments.service';
 import { generateStandaloneInvoicePdf } from '../payments/export/invoice.generator';
@@ -26,6 +27,7 @@ export class InvoicesService {
     @InjectRepository(Invoice)
     private readonly invoiceRepository: Repository<Invoice>,
     private readonly dataSource: DataSource,
+    private readonly productsService: ProductsService,
     private readonly emailNotificationService: EmailNotificationService,
     private readonly paymentsService: PaymentsService,
     private readonly configService: ConfigService,
@@ -42,7 +44,12 @@ export class InvoicesService {
         [merchantId],
       );
       const number = Number(result[0].nextNumber);
-      const totals = this.calculateTotals(dto.lineItems, dto.taxRate ?? 0);
+      const resolvedItems = await this.resolveLineItems(
+        merchantId,
+        dto.lineItems,
+        dto.currency,
+      );
+      const totals = this.calculateTotals(resolvedItems, dto.taxRate ?? 0);
       const invoice = runner.manager.create(Invoice, {
         merchantId,
         number,
@@ -54,7 +61,7 @@ export class InvoicesService {
         dueDate: new Date(dto.dueDate),
         status: InvoiceStatus.DRAFT,
         publicToken: randomBytes(32).toString('hex'),
-        lineItems: this.toLineItems(dto.lineItems),
+        lineItems: this.toLineItems(resolvedItems),
       });
       const saved = await runner.manager.save(invoice);
       await runner.commitTransaction();
@@ -94,8 +101,13 @@ export class InvoicesService {
     if (dto.dueDate !== undefined) invoice.dueDate = new Date(dto.dueDate);
     if (dto.taxRate !== undefined) invoice.taxRate = dto.taxRate.toFixed(2);
     if (dto.lineItems !== undefined) {
-      Object.assign(invoice, this.calculateTotals(dto.lineItems, Number(invoice.taxRate)));
-      invoice.lineItems = this.toLineItems(dto.lineItems);
+      const resolvedItems = await this.resolveLineItems(
+        merchantId,
+        dto.lineItems,
+        invoice.currency,
+      );
+      Object.assign(invoice, this.calculateTotals(resolvedItems, Number(invoice.taxRate)));
+      invoice.lineItems = this.toLineItems(resolvedItems);
     }
     return this.invoiceRepository.save(invoice);
   }
@@ -186,6 +198,44 @@ export class InvoicesService {
       .execute();
   }
 
+  private async resolveLineItems(
+    merchantId: string,
+    items: CreateInvoiceDto['lineItems'],
+    currency: string,
+  ): Promise<Array<{ description: string; quantity: number; unitPrice: number; productId?: string }>> {
+    return Promise.all(
+      items.map(async (item) => {
+        const hasProductId = typeof item.productId === 'string' && item.productId.trim().length > 0;
+
+        if (hasProductId) {
+          const product = await this.productsService.validateAndGetProduct(
+            merchantId,
+            item.productId!,
+            currency,
+          );
+          return {
+            description: item.description ?? product.name,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice ?? Number(product.unitAmount),
+            productId: item.productId,
+          };
+        }
+
+        if (!item.description || item.unitPrice === undefined) {
+          throw new BadRequestException(
+            'Line items must provide productId or both description and unitPrice',
+          );
+        }
+
+        return {
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+        };
+      }),
+    );
+  }
+
   private async updateOverdueStatus(invoice: Invoice): Promise<Invoice> {
     if (invoice.status === InvoiceStatus.OPEN && invoice.dueDate < new Date()) {
       invoice.status = InvoiceStatus.OVERDUE;
@@ -201,7 +251,7 @@ export class InvoicesService {
   }
 
   private calculateTotals(
-    items: CreateInvoiceDto['lineItems'],
+    items: Array<{ quantity: number; unitPrice: number }>,
     taxRate: number,
   ): Pick<Invoice, 'subtotal' | 'taxAmount' | 'total'> {
     const subtotal = money(
@@ -215,12 +265,15 @@ export class InvoicesService {
     };
   }
 
-  private toLineItems(items: CreateInvoiceDto['lineItems']): InvoiceLineItem[] {
+  private toLineItems(
+    items: Array<{ description: string; quantity: number; unitPrice: number; productId?: string }>,
+  ): InvoiceLineItem[] {
     return items.map((item) => ({
       description: item.description,
       quantity: item.quantity.toFixed(3),
       unitPrice: item.unitPrice.toFixed(2),
       amount: money(item.quantity * item.unitPrice).toFixed(2),
+      productId: item.productId ?? null,
     }) as InvoiceLineItem);
   }
 

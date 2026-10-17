@@ -21,11 +21,19 @@ import { Type } from 'class-transformer';
 import { IsISO4217CurrencyCode } from '../../../common/validators/is-iso4217-currency-code.validator';
 
 export class LineItemDto {
-  @ApiProperty({ description: 'Item name', example: 'Product 1' })
+  @ApiPropertyOptional({
+    description: 'Product ID from catalog',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
+  productId?: string;
+
+  @ApiPropertyOptional({ description: 'Item name. Optional if productId is provided.', example: 'Product 1' })
+  @IsOptional()
+  @IsString()
   @MaxLength(200)
-  name: string;
+  name?: string;
 
   @ApiPropertyOptional({ description: 'Item description', example: 'A great product' })
   @IsOptional()
@@ -38,11 +46,15 @@ export class LineItemDto {
   @IsPositive()
   quantity: number;
 
-  @ApiProperty({ description: 'Unit amount in smallest currency unit', example: 1000 })
+  @ApiPropertyOptional({
+    description: 'Unit amount in smallest currency unit. Optional if productId is provided.',
+    example: 1000,
+  })
+  @IsOptional()
   @IsInt()
   @IsPositive()
   @Min(1)
-  unitAmount: number;
+  unitAmount?: number;
 }
 
 export class CreateCheckoutSessionDto {

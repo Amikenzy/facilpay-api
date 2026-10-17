@@ -31,6 +31,7 @@ import { PayoutsModule } from './modules/payouts/payouts.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { InvoicesModule } from './modules/invoices/invoices.module';
 import { CouponsModule } from './modules/coupons/coupons.module';
+import { ProductsModule } from './modules/products/products.module';
 import { TeamModule } from './modules/team/team.module';
 
 import { AdminMetricsModule } from './modules/admin/admin-metrics.module';
@@ -73,6 +74,7 @@ import { AdminMetricsModule } from './modules/admin/admin-metrics.module';
     AnalyticsModule,
     InvoicesModule,
     CouponsModule,
+    ProductsModule,
     TeamModule,
   ],
   controllers: [AppController],

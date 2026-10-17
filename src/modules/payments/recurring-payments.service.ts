@@ -158,7 +158,18 @@ export class RecurringPaymentsService {
       );
     }
     plan.status = RecurringPaymentStatus.PAUSED;
-    return this.recurringPaymentRepository.save(plan);
+    const saved = await this.recurringPaymentRepository.save(plan);
+    if (plan.merchantId) {
+      await this.webhooksService.dispatchEventToMerchant(
+        plan.merchantId,
+        'recurring.paused',
+        {
+          planId: plan.id,
+          reason: 'manual_pause',
+        },
+      );
+    }
+    return saved;
   }
 
   async resume(id: string, createdBy: string): Promise<RecurringPayment> {
@@ -182,7 +193,17 @@ export class RecurringPaymentsService {
     }
     plan.status = RecurringPaymentStatus.CANCELLED;
     plan.cancelledAt = new Date();
-    return this.recurringPaymentRepository.save(plan);
+    const saved = await this.recurringPaymentRepository.save(plan);
+    if (plan.merchantId) {
+      await this.webhooksService.dispatchEventToMerchant(
+        plan.merchantId,
+        'recurring.cancelled',
+        {
+          planId: plan.id,
+        },
+      );
+    }
+    return saved;
   }
 
   private computeNextRunAt(
@@ -295,6 +316,18 @@ export class RecurringPaymentsService {
         );
       }
 
+      await this.webhooksService.dispatchEventToMerchant(
+        plan.merchantId,
+        'recurring.charge_succeeded',
+        {
+          planId: plan.id,
+          cycleNumber: chargeAttempt.cycleNumber,
+          paymentId,
+          amount: plan.amount,
+          currency: plan.currency,
+        },
+      );
+
       plan.lastRunAt = scheduledFor;
       plan.occurrences = (plan.occurrences ?? 0) + 1;
       const nextRunAt = this.computeNextRunAt(plan.interval, scheduledFor);
@@ -356,7 +389,33 @@ export class RecurringPaymentsService {
       }
 
       await this.recurringPaymentRepository.save(plan);
+
+      await this.webhooksService.dispatchEventToMerchant(
+        plan.merchantId,
+        'recurring.charge_failed',
+        {
+          planId: plan.id,
+          cycleNumber: chargeAttempt?.cycleNumber ?? (plan.occurrences ?? 0) + 1,
+          attemptNumber: consecutiveFailures,
+          amount: plan.amount,
+          currency: plan.currency,
+          reason: error instanceof Error ? error.message : String(error),
+        },
+      );
     }
+  }
+
+  private async notifyPlanPaused(plan: RecurringPayment): Promise<void> {
+    if (!plan.merchantId) return;
+    await this.webhooksService.dispatchEventToMerchant(
+      plan.merchantId,
+      'recurring.paused',
+      {
+        planId: plan.id,
+        reason: 'auto_pause_after_failures',
+        consecutiveFailures: plan.consecutiveFailures,
+      },
+    );
   }
 
   @Cron(CronExpression.EVERY_MINUTE)

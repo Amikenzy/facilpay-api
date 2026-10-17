@@ -229,4 +229,5 @@ Environment variables:
 - [Stellar](docs/STELLAR.md) — Stellar network integration
 - [Two-Factor Auth](docs/TWO_FACTOR_AUTH.md) — 2FA implementation
 - [Password Reset](docs/PASSWORD_RESET.md) — password reset flow
+- [Observability](docs/OBSERVABILITY.md) — metrics, tracing, and structured logging
 - [Environment](docs/ENVIRONMENT.md) — environment variable reference

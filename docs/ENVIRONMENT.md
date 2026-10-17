@@ -56,6 +56,12 @@ whether it is required in production.
 | `LOG_BODY_MAX_LENGTH` | Max request body length logged | `2048` | No | `2048` |
 | `LOG_RESPONSE_BODY` | Log response bodies | `false` | No | `false` |
 
+## Tracing
+
+| Variable | Description | Default | Required | Example |
+| --- | --- | --- | --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry OTLP HTTP exporter endpoint (required to enable tracing; if not set, tracing is disabled) | *(empty — tracing disabled)* | No | `http://otel-collector:4318/v1/traces` |
+
 ## Stellar
 
 | Variable | Description | Default | Required | Example |

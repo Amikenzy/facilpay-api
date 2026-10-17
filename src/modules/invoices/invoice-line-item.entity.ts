@@ -6,6 +6,7 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Invoice } from './invoice.entity';
+import { Product } from '../../products/product.entity';
 
 @Entity('invoice_line_items')
 export class InvoiceLineItem {
@@ -20,6 +21,13 @@ export class InvoiceLineItem {
   })
   @JoinColumn({ name: 'invoiceId' })
   invoice: Invoice;
+
+  @Column({ type: 'uuid', nullable: true })
+  productId: string | null;
+
+  @ManyToOne(() => Product, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'productId' })
+  product: Product | null;
 
   @Column({ type: 'varchar', length: 500 })
   description: string;

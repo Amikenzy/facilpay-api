@@ -17,9 +17,23 @@ import { IsISO4217CurrencyCode } from '../../../common/validators/is-iso4217-cur
 
 export class InvoiceLineItemDto {
   @IsString()
+  @IsOptional()
   @MaxLength(500)
-  @ApiProperty({ example: 'Consulting services' })
-  description: string;
+  @ApiPropertyOptional({
+    description:
+      'Line item description. If productId is provided, this is optional and defaults to the product name.',
+    example: 'Consulting services',
+  })
+  description?: string;
+
+  @IsString()
+  @IsOptional()
+  @ApiPropertyOptional({
+    description:
+      'Reference to a catalog product. When provided, unitPrice (if omitted) defaults to the product unitAmount at use time.',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  productId?: string;
 
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 3 })
@@ -30,8 +44,13 @@ export class InvoiceLineItemDto {
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0.01)
-  @ApiProperty({ example: 125 })
-  unitPrice: number;
+  @IsOptional()
+  @ApiPropertyOptional({
+    description:
+      'Unit price in decimal currency units. Required if productId is not provided.',
+    example: 125,
+  })
+  unitPrice?: number;
 }
 
 export class CreateInvoiceDto {

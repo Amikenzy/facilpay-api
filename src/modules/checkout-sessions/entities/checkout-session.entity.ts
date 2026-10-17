@@ -14,6 +14,7 @@ export enum CheckoutSessionStatus {
 }
 
 export type LineItem = {
+  productId?: string | null;
   name: string;
   description?: string;
   quantity: number;

@@ -8,6 +8,7 @@ import { CheckoutSessionsController, CheckoutSessionsPublicController } from './
 import { MerchantsModule } from '../merchants/merchants.module';
 import { WebhooksModule } from '../webhooks/webhooks.module';
 import { PaymentsModule } from '../payments/payments.module';
+import { ProductsModule } from '../products/products.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { PaymentsModule } from '../payments/payments.module';
     MerchantsModule,
     WebhooksModule,
     PaymentsModule,
+    ProductsModule,
   ],
   controllers: [CheckoutSessionsController, CheckoutSessionsPublicController],
   providers: [CheckoutSessionsService],

@@ -10,10 +10,11 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { randomBytes } from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { CheckoutSession, CheckoutSessionStatus, LineItem } from './entities/checkout-session.entity';
-import { CreateCheckoutSessionDto } from './dto/create-checkout-session.dto';
+import { CreateCheckoutSessionDto, LineItemDto } from './dto/create-checkout-session.dto';
 import { MerchantsService } from '../merchants/merchants.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { PaymentsService } from '../payments/payments.service';
+import { ProductsService } from '../products/products.service';
 import { Payment, PaymentStatus } from '../payments/payment.entity';
 import { AppLogger } from '../logger/logger.service';
 import type { Logger } from 'pino';
@@ -29,6 +30,7 @@ export class CheckoutSessionsService {
     private readonly merchantsService: MerchantsService,
     private readonly webhooksService: WebhooksService,
     private readonly paymentsService: PaymentsService,
+    private readonly productsService: ProductsService,
     private readonly configService: ConfigService,
     appLogger: AppLogger,
   ) {
@@ -45,8 +47,40 @@ export class CheckoutSessionsService {
       throw new BadRequestException('At least one line item is required');
     }
 
+    const resolvedLineItems = await Promise.all(
+      dto.lineItems.map(async (item) => {
+        const hasProductId = typeof item.productId === 'string' && item.productId.trim().length > 0;
+        if (hasProductId) {
+          const product = await this.productsService.validateAndGetProduct(
+            merchantId,
+            item.productId!,
+            dto.currency,
+          );
+          return {
+            productId: item.productId,
+            name: item.name ?? product.name,
+            description: item.description ?? product.description ?? undefined,
+            quantity: item.quantity,
+            unitAmount: item.unitAmount ?? Math.round(Number(product.unitAmount) * 100),
+          };
+        }
+
+        if (!item.name || item.unitAmount === undefined) {
+          throw new BadRequestException('Line items must provide productId or both name and unitAmount');
+        }
+
+        return {
+          productId: null,
+          name: item.name,
+          description: item.description,
+          quantity: item.quantity,
+          unitAmount: item.unitAmount,
+        };
+      }),
+    );
+
     // Calculate total from line items (server-side)
-    const total = this.calculateTotal(dto.lineItems);
+    const total = this.calculateTotal(resolvedLineItems);
 
     // Generate public ID (URL-safe, 24 chars)
     const publicId = this.generatePublicId();
@@ -59,7 +93,7 @@ export class CheckoutSessionsService {
     const session = this.sessionRepo.create({
       publicId,
       merchantId,
-      lineItems: dto.lineItems as LineItem[],
+      lineItems: resolvedLineItems as LineItem[],
       currency: dto.currency.toUpperCase(),
       total,
       customerId: dto.customerId || null,
@@ -240,7 +274,7 @@ export class CheckoutSessionsService {
   /**
    * Calculate total from line items (server-side)
    */
-  private calculateTotal(lineItems: LineItemDto[]): number {
+  private calculateTotal(lineItems: Array<{ quantity: number; unitAmount: number }>): number {
     return lineItems.reduce((sum, item) => {
       return sum + item.quantity * item.unitAmount;
     }, 0);

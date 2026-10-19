@@ -18,11 +18,13 @@ import {
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { Payment, PaymentStatus } from './payment.entity';
+import { PaymentNote } from './payment-note.entity';
 import { Invoice, InvoiceStatus } from '../invoices/invoice.entity';
 import { Coupon } from '../coupons/coupon.entity';
 import { PaymentLink } from '../payment-links/payment-link.entity';
 import { assertCouponUsable, calculateCouponDiscount } from '../coupons/coupons.service';
 import { Refund, RefundReasonCode } from './refund.entity';
+import { GetRefundsDto } from './dto/get-refunds.dto';
 import { Dispute, DisputeStatus } from './dispute.entity';
 import { MerchantSettings } from '../merchants/entities/merchant-settings.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -1102,6 +1104,82 @@ export class PaymentsService {
     });
   }
 
+  async addPaymentNote(
+    paymentId: string,
+    merchantId: string,
+    body: string,
+  ): Promise<PaymentNote> {
+    await this.findPaymentForMerchant(paymentId, merchantId);
+    const notes = this.dataSource.getRepository(PaymentNote);
+    const note = notes.create({ paymentId, authorId: merchantId, body });
+    return notes.save(note);
+  }
+
+  async getPaymentNotes(
+    paymentId: string,
+    merchantId: string,
+  ): Promise<PaymentNote[]> {
+    await this.findPaymentForMerchant(paymentId, merchantId);
+    return this.dataSource.getRepository(PaymentNote).find({
+      where: { paymentId },
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  private async findPaymentForMerchant(
+    paymentId: string,
+    merchantId: string,
+  ): Promise<Payment> {
+    const payment = await this.paymentRepository.findOneBy({
+      id: paymentId,
+      merchantId,
+    });
+    if (!payment) {
+      throw new NotFoundException(`Payment with ID ${paymentId} not found`);
+    }
+    return payment;
+  }
+
+  async listRefunds(
+    merchantId: string,
+    dto: GetRefundsDto,
+  ): Promise<PaginatedResult<Refund>> {
+    const query = this.refundRepository
+      .createQueryBuilder('refund')
+      .innerJoin(Payment, 'payment', 'payment.id = refund."paymentId"')
+      .where('payment.merchantId = :merchantId', { merchantId });
+
+    if (dto.status) {
+      query.andWhere('refund.status = :status', { status: dto.status });
+    }
+    if (dto.from) {
+      query.andWhere('refund."createdAt" >= :from', { from: dto.from });
+    }
+    if (dto.to) {
+      query.andWhere('refund."createdAt" <= :to', { to: dto.to });
+    }
+    if (dto.paymentId) {
+      query.andWhere('refund."paymentId" = :paymentId', {
+        paymentId: dto.paymentId,
+      });
+    }
+    if (dto.reasonCode) {
+      query.andWhere('refund."reasonCode" = :reasonCode', {
+        reasonCode: dto.reasonCode,
+      });
+    }
+
+    const page = dto.page ?? 1;
+    const limit = dto.limit ?? 20;
+    query
+      .orderBy('refund."createdAt"', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    const [data, total] = await query.getManyAndCount();
+    return { data, total, page, limit };
+  }
+
   async getRefundReport(from?: string, to?: string) {
     const query = this.refundRepository
       .createQueryBuilder('refund')
@@ -1142,8 +1220,13 @@ export class PaymentsService {
    * Aggregates data from the payment itself, its refunds, and disputes,
    * sorted by timestamp ascending.
    */
-  async getTimeline(paymentId: string): Promise<PaymentTimelineEvent[]> {
-    const payment = await this.findOne(paymentId);
+  async getTimeline(
+    paymentId: string,
+    merchantId?: string,
+  ): Promise<PaymentTimelineEvent[]> {
+    const payment = merchantId
+      ? await this.findPaymentForMerchant(paymentId, merchantId)
+      : await this.findOne(paymentId);
     const events: PaymentTimelineEvent[] = [];
 
     // Payment creation event
@@ -1235,6 +1318,22 @@ export class PaymentsService {
           status: refund.status,
           stellarTransactionHash: refund.stellarTransactionHash,
           claimableBalanceId: refund.claimableBalanceId,
+        },
+      });
+    }
+
+    const notes = await this.dataSource.getRepository(PaymentNote).find({
+      where: { paymentId },
+      order: { createdAt: 'ASC' },
+    });
+    for (const note of notes) {
+      events.push({
+        type: 'payment.note_added',
+        timestamp: note.createdAt,
+        data: {
+          noteId: note.id,
+          authorId: note.authorId,
+          body: note.body,
         },
       });
     }

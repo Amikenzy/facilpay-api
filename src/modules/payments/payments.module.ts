@@ -6,6 +6,7 @@ import { PaymentsService } from './payments.service';
 import { PaymentsController } from './payments.controller';
 import { CustomerPaymentsController } from './customer-payments.controller';
 import { Payment } from './payment.entity';
+import { PaymentNote } from './payment-note.entity';
 import { Invoice } from '../invoices/invoice.entity';
 import { Coupon } from '../coupons/coupon.entity';
 import { PaymentLink } from '../payment-links/payment-link.entity';
@@ -56,6 +57,7 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
     ScheduleModule.forRoot(),
     TypeOrmModule.forFeature([
       Payment,
+      PaymentNote,
       Invoice,
       Coupon,
       PaymentLink,

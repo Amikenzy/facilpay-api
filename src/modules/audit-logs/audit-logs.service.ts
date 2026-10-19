@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AuditLog, ActorType } from './audit-log.entity';
 import { PaginatedResult } from '../../common/interfaces/paginated-result.interface';
+import { sanitizeBody } from '../logger/logging.utils';
 
 export interface RecordAuditLogParams {
   actorId?: string | null;
@@ -31,7 +32,9 @@ export class AuditLogsService {
       resourceId: params.resourceId ?? null,
       ipAddress: params.ipAddress ?? null,
       userAgent: params.userAgent ?? null,
-      metadata: params.metadata ?? null,
+      metadata: params.metadata
+        ? (sanitizeBody(params.metadata, 0) as Record<string, any>)
+        : null,
     });
 
     return this.auditLogRepository.save(log);

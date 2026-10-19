@@ -3,6 +3,13 @@ import { IsOptional, IsBoolean, IsArray, IsInt, Min, Max, ArrayMinSize, ArrayMax
 import { Type } from 'class-transformer';
 
 export class UpdateSettingsDto {
+  @ApiPropertyOptional({ description: 'Expire inactive sessions after this many minutes. Null disables idle expiration.', nullable: true, minimum: 1, maximum: 43200 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(43200)
+  idleSessionTimeoutMinutes?: number | null;
+
   @ApiPropertyOptional({ description: 'Enable or disable invoice reminders', default: true })
   @IsOptional()
   @IsBoolean()

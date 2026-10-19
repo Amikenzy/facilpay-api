@@ -1,3 +1,5 @@
+import { MerchantSettings } from './entities/merchant-settings.entity';
+import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -29,7 +31,23 @@ export class MerchantsService {
     private readonly onboardingRepo: Repository<MerchantOnboarding>,
     private readonly geoLookupService: GeoLookupService,
     private readonly auditLogsService: AuditLogsService,
+    @InjectRepository(MerchantSettings)
+    private readonly settingsRepo: Repository<MerchantSettings>,
   ) {}
+
+  async getSettings(merchantId: string): Promise<MerchantSettings | null> {
+    return this.settingsRepo.findOneBy({ merchantId });
+  }
+
+  async upsertSettings(merchantId: string, dto: UpdateSettingsDto): Promise<MerchantSettings> {
+    const settings = await this.getSettings(merchantId) ?? this.settingsRepo.create({ merchantId });
+    if (dto.idleSessionTimeoutMinutes !== undefined) settings.idleSessionTimeoutMinutes = dto.idleSessionTimeoutMinutes;
+    if (dto.remindersEnabled !== undefined) settings.remindersEnabled = dto.remindersEnabled;
+    if (dto.reminderOffsets !== undefined) settings.reminderOffsets = dto.reminderOffsets;
+    if (dto.timezone !== undefined) settings.timezone = dto.timezone;
+    if (dto.refundApprovalThresholds !== undefined) settings.refundApprovalThresholds = dto.refundApprovalThresholds;
+    return this.settingsRepo.save(settings);
+  }
 
   async upsertGeoRestrictions(
     merchantId: string,

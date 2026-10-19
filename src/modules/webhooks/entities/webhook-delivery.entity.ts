@@ -19,6 +19,9 @@ export enum WebhookDeliveryStatus {
 
 @Entity('webhook_deliveries')
 export class WebhookDelivery {
+  @Column({ type: 'int', nullable: true })
+  latencyMs: number | null;
+
   @PrimaryGeneratedColumn('uuid')
   id: string;
 

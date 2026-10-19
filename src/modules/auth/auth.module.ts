@@ -29,6 +29,7 @@ import { WebAuthnService } from './webauthn.service';
 import { LoginAlertActionToken } from './entities/login-alert-action-token.entity';
 import { LoginAlertsService } from './login-alerts.service';
 import { MerchantsModule } from '../merchants/merchants.module';
+import { MagicLinkToken } from './entities/magic-link-token.entity';
 import { Session } from './entities/session.entity';
 
 @Module({
@@ -40,6 +41,8 @@ import { Session } from './entities/session.entity';
     MerchantsModule,
     TypeOrmModule.forFeature([
       RefreshToken,
+      MagicLinkToken,
+      LoginEvent,
       PasswordResetToken,
       PasswordHistory,
       Role,

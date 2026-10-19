@@ -11,6 +11,8 @@ import { Logger } from 'pino';
 import { WebhooksService } from './webhooks.service';
 import { WebhookDelivery, WebhookDeliveryStatus } from './entities/webhook-delivery.entity';
 import { WebhookEndpoint } from './entities/webhook-endpoint.entity';
+import { validateHeaders } from './header-security';
+import { performance } from 'perf_hooks';
 
 @Processor('webhooks', { limiter: { max: 10, duration: 1000 } })
 @Injectable()
@@ -60,11 +62,15 @@ export class WebhooksProcessor extends WorkerHost {
     delivery.attempts = attempt;
     delivery.lastAttemptAt = new Date();
 
+    const startedAt = performance.now();
     try {
+      if (endpoint.headers) validateHeaders(endpoint.headers);
       const response = await firstValueFrom(
         this.httpService.post(endpoint.url, payload, {
           timeout: 10_000,
+          maxRedirects: 0,
           headers: {
+            ...endpoint.headers,
             'Content-Type': 'application/json',
             'X-FacilPay-Signature': signature,
             'X-FacilPay-Event': payload.event || 'webhook',
@@ -74,6 +80,7 @@ export class WebhooksProcessor extends WorkerHost {
       );
 
       delivery.status = WebhookDeliveryStatus.SUCCESS;
+      delivery.latencyMs = Math.round(performance.now() - startedAt);
       delivery.lastResponseCode = response.status;
       delivery.lastError = null;
       await this.deliveryRepo.save(delivery);
@@ -88,6 +95,7 @@ export class WebhooksProcessor extends WorkerHost {
 
       return { success: true, statusCode: response.status };
     } catch (error: any) {
+      delivery.latencyMs = Math.round(performance.now() - startedAt);
       const statusCode = error?.response?.status ?? null;
       const errorMsg = error instanceof Error ? error.message : String(error);
 

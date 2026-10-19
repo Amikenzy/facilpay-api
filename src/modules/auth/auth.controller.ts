@@ -14,6 +14,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { RequestMagicLinkDto, VerifyMagicLinkDto } from './dto/magic-link.dto';
+import { extractClientIp } from '../merchants/ip-utils';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { RegisterDto } from '../users/dto/register.dto';
@@ -75,6 +77,24 @@ export class AuthController {
     private readonly webAuthnService: WebAuthnService,
     private readonly loginAlertsService: LoginAlertsService,
   ) {}
+
+  @AuthThrottle()
+  @Public()
+  @Post('magic-link')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Email a single-use sign-in link valid for 15 minutes' })
+  requestMagicLink(@Body() dto: RequestMagicLinkDto, @Req() req: Request) {
+    return this.authService.requestMagicLink(dto.email, req.ip);
+  }
+
+  @AuthThrottle()
+  @Public()
+  @Post('magic-link/verify')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Redeem a sign-in link; requires a second factor when configured' })
+  verifyMagicLink(@Body() dto: VerifyMagicLinkDto, @Req() req: Request) {
+    return this.authService.verifyMagicLink(dto.token, req.ip, req.headers['user-agent'], dto.deviceId, dto.twoFactorCode);
+  }
 
   @AuthThrottle()
   @Post('register')

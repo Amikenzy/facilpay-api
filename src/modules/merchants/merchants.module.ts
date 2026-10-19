@@ -1,3 +1,4 @@
+import { MerchantSettings } from './entities/merchant-settings.entity';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
@@ -16,11 +17,11 @@ import { Payment } from '../payments/payment.entity';
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([MerchantGeoRestriction, MerchantIpAllowlist, MerchantOnboarding, MerchantLimit, Payment]),
+    TypeOrmModule.forFeature([MerchantGeoRestriction, MerchantIpAllowlist, MerchantOnboarding, MerchantLimit, Payment, MerchantSettings]),
     AuditLogsModule,
   ],
   controllers: [MerchantsController],
-  providers: [MerchantsService, GeoLookupService],
-  exports: [MerchantsService, GeoLookupService],
+  providers: [MerchantsService, GeoLookupService, MerchantLimitsService],
+  exports: [MerchantsService, GeoLookupService, MerchantLimitsService],
 })
 export class MerchantsModule { }

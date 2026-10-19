@@ -11,6 +11,7 @@ import {
   ApiForbiddenResponse,
   ApiConsumes,
 } from '@nestjs/swagger';
+import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { MerchantsService } from './merchants.service';
 import { UpdateGeoRestrictionsDto } from './dto/update-geo-restrictions.dto';
 import { UpdateIpAllowlistDto } from './dto/update-ip-allowlist.dto';
@@ -281,6 +282,7 @@ export class MerchantsController {
     schema: {
       example: {
         merchantId: 'abc123-merchant-uuid',
+        idleSessionTimeoutMinutes: null,
         remindersEnabled: true,
         reminderOffsets: [-3, 0, 7],
         createdAt: '2026-01-26T10:00:00.000Z',

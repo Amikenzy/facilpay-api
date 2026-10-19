@@ -10,6 +10,10 @@ import {
 @Entity('merchant_settings')
 @Index('idx_merchant_settings_merchant_id', ['merchantId'], { unique: true })
 export class MerchantSettings {
+  /** Null disables idle expiration, preserving existing token lifetimes. */
+  @Column({ type: 'int', nullable: true })
+  idleSessionTimeoutMinutes: number | null = null;
+
   @PrimaryGeneratedColumn('uuid')
   id: string;
 

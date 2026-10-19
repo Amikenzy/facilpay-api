@@ -14,7 +14,6 @@ import {
 import { Request, Response } from 'express';
 import { ExportsService } from './exports.service';
 import { CreateExportDto } from './dto/create-export.dto';
-import { ExportStatus } from './exports.types';
 
 interface AuthenticatedRequest extends Request {
   user?: { id: string };
@@ -35,7 +34,12 @@ export class ExportsController {
     @Body() dto: CreateExportDto,
   ) {
     const userId = this.requireUser(req);
-    const job = await this.exportsService.enqueue(userId, dto);
+    const job = await this.exportsService.createExport({
+      type: dto.resource,
+      format: dto.format,
+      filters: { ...dto.filters, from: dto.from, to: dto.to, status: dto.status, currency: dto.currency },
+      ownerId: userId,
+    });
     return {
       id: job.id,
       status: job.status,
@@ -51,7 +55,7 @@ export class ExportsController {
   @Get(':id')
   async status(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
     const userId = this.requireUser(req);
-    const job = await this.exportsService.getOwned(userId, id);
+    const job = await this.exportsService.getExport(id, userId);
     return {
       id: job.id,
       status: job.status,
@@ -59,11 +63,11 @@ export class ExportsController {
       format: job.format,
       error: job.error ?? null,
       createdAt: job.createdAt,
-      completedAt: job.completedAt ?? null,
+      completedAt: job.status === 'completed' ? job.updatedAt : null,
       expiresAt: job.expiresAt ?? null,
       downloadUrl:
-        job.status === ExportStatus.COMPLETED
-          ? this.exportsService.buildDownloadUrl(job.id)
+        job.status === 'completed'
+          ? this.exportsService.buildDownloadUrl(job.id, userId)
           : null,
     };
   }
@@ -77,11 +81,12 @@ export class ExportsController {
     @Req() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Query('token') token: string,
+    @Query('expires') expires: string,
     @Res() res: Response,
   ) {
     const userId = this.requireUser(req);
     const { stream, filename, contentType } =
-      await this.exportsService.openDownload(userId, id, token);
+      await this.exportsService.openDownload(userId, id, Number(expires), token);
 
     res.setHeader('Content-Type', contentType);
     res.setHeader(

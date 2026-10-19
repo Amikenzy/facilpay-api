@@ -2,13 +2,11 @@ import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { Queue, Worker, Job } from 'bullmq';
+import { createReadStream } from 'fs';
 import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { DataSource } from 'typeorm';
 
-/**
- * Supported export types. Only payments is implemented today; the union keeps
- * the API forward compatible with future exporters.
- */
-export type ExportType = 'payments';
+export type ExportType = 'payments' | 'customers' | 'invoices' | 'refunds';
 
 /**
  * Supported output formats for an export.
@@ -16,7 +14,7 @@ export type ExportType = 'payments';
 export type ExportFormat = 'csv' | 'pdf';
 
 /**
- * Filters accepted by the payments exporter. Kept intentionally loose so the
+ * Filters accepted by an export. Kept intentionally loose so the
  * caller can pass through the same query params used by the sync endpoint.
  */
 export interface ExportFilters {
@@ -100,12 +98,87 @@ export class LocalDiskStorageAdapter implements ExportStorageAdapter {
  * Source of payment rows. The payments module provides an implementation that
  * streams rows in batches so exports never load the full result set at once.
  */
-export interface PaymentsExportSource {
+export interface ExportsSource {
   /**
-   * Stream payment rows matching the filters in batches. Implementations must
+   * Stream rows for a resource matching the filters in batches. Implementations must
    * yield plain objects; the exporter serialises them to the requested format.
    */
-  streamPayments(filters: ExportFilters, batchSize: number): AsyncIterable<Record<string, unknown>[]>;
+  streamRows(
+    resource: ExportType,
+    filters: ExportFilters,
+    batchSize: number,
+  ): AsyncIterable<Record<string, unknown>[]>;
+}
+
+export class DatabaseExportsSource implements ExportsSource {
+  constructor(private readonly dataSource: DataSource) {}
+
+  async *streamRows(
+    resource: ExportType,
+    filters: ExportFilters,
+    batchSize: number,
+  ): AsyncIterable<Record<string, unknown>[]> {
+    const merchantId = filters.merchantId;
+    if (typeof merchantId !== 'string' || merchantId.length === 0) {
+      throw new BadRequestException('A merchant ID is required for exports');
+    }
+
+    const queries: Record<ExportType, { select: string; from: string; alias: string; currency: boolean; status: boolean }> = {
+      payments: {
+        select: 'p."id", p."merchantId", p."amount", p."currency", p."status", p."createdAt"',
+        from: '"payments" p', alias: 'p', currency: true, status: true,
+      },
+      customers: {
+        select: 'c."id", c."merchantId", c."email", c."name", c."phone", c."createdAt", c."updatedAt"',
+        from: '"customers" c', alias: 'c', currency: false, status: false,
+      },
+      invoices: {
+        select: 'i."id", i."merchantId", i."number", i."customerEmail", i."customerName", i."currency", i."subtotal", i."taxRate", i."taxAmount", i."total", i."dueDate", i."status", i."paymentId", i."createdAt", i."updatedAt"',
+        from: '"invoices" i', alias: 'i', currency: true, status: true,
+      },
+      refunds: {
+        select: 'r."id", r."paymentId", r."amount", r."reason", r."reasonCode", r."initiatedBy", r."createdAt"',
+        from: '"refunds" r JOIN "payments" p ON p."id" = r."paymentId"', alias: 'r', currency: true, status: false,
+      },
+    };
+    const query = queries[resource];
+    const conditions = [resource === 'refunds' ? 'p."merchantId" = $1' : `${query.alias}."merchantId" = $1`];
+    const params: unknown[] = [merchantId];
+
+    if (resource === 'customers') conditions.push('c."deletedAt" IS NULL');
+    if (filters.from) {
+      params.push(filters.from);
+      conditions.push(`${query.alias}."createdAt" >= $${params.length}`);
+    }
+    if (filters.to) {
+      params.push(filters.to);
+      conditions.push(`${query.alias}."createdAt" < $${params.length}`);
+    }
+    if (query.status && typeof filters.status === 'string') {
+      params.push(filters.status);
+      conditions.push(`${query.alias}."status" = $${params.length}`);
+    }
+    if (query.currency && typeof filters.currency === 'string') {
+      params.push(filters.currency);
+      const currencyAlias = resource === 'invoices' ? 'i' : 'p';
+      conditions.push(`${currencyAlias}."currency" = $${params.length}`);
+    }
+
+    const orderAlias = query.alias;
+    const sql = `SELECT ${query.select}
+                   FROM ${query.from}
+                  WHERE ${conditions.join(' AND ')}
+                  ORDER BY ${orderAlias}."createdAt" ASC, ${orderAlias}."id" ASC
+                  LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    let offset = 0;
+    while (true) {
+      const rows: Record<string, unknown>[] = await this.dataSource.query(sql, [...params, batchSize, offset]);
+      if (rows.length === 0) return;
+      yield rows;
+      offset += rows.length;
+      if (rows.length < batchSize) return;
+    }
+  }
 }
 
 /**
@@ -125,7 +198,7 @@ export interface ExportsServiceOptions {
   connection?: { host?: string; port?: number };
   storage?: ExportStorageAdapter;
   storageDir?: string;
-  source?: PaymentsExportSource;
+  source?: ExportsSource;
   notifier?: ExportNotifier;
   /** Number of days a generated file remains downloadable. */
   retentionDays?: number;
@@ -144,8 +217,47 @@ const DEFAULT_STORAGE_DIR = join(process.cwd(), 'tmp', 'exports');
 const DEFAULT_SIGNING_SECRET = 'exports-dev-secret';
 const DEFAULT_PUBLIC_BASE_URL = '';
 
+export const EXPORT_COLUMNS: Record<ExportType, string[]> = {
+  payments: ['id', 'merchantId', 'amount', 'currency', 'status', 'createdAt'],
+  customers: ['id', 'merchantId', 'email', 'name', 'phone', 'createdAt', 'updatedAt'],
+  invoices: [
+    'id',
+    'merchantId',
+    'number',
+    'customerEmail',
+    'customerName',
+    'currency',
+    'subtotal',
+    'taxRate',
+    'taxAmount',
+    'total',
+    'dueDate',
+    'status',
+    'paymentId',
+    'createdAt',
+    'updatedAt',
+  ],
+  refunds: [
+    'id',
+    'paymentId',
+    'amount',
+    'reason',
+    'reasonCode',
+    'initiatedBy',
+    'createdAt',
+  ],
+};
+
+export function sanitizeCsvCell(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  let str = String(value);
+  if (/^[=+\-@]/.test(str)) str = `'${str}`;
+  if (/[",\n\r]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+  return str;
+}
+
 /**
- * ExportsService owns the lifecycle of asynchronous payment exports:
+ * ExportsService owns the lifecycle of asynchronous resource exports:
  *
  *  - POST /v1/exports enqueues a job and returns its id.
  *  - GET  /v1/exports/:id returns status for the owner.
@@ -153,7 +265,7 @@ const DEFAULT_PUBLIC_BASE_URL = '';
  *
  * The heavy lifting runs in a BullMQ worker so the request thread never builds
  * the file. Rows are streamed in batches to keep memory bounded regardless of
- * how many payments match the filters.
+  * how many records match the filters.
  */
 @Injectable()
 export class ExportsService {
@@ -201,7 +313,7 @@ export class ExportsService {
     filters?: ExportFilters;
     ownerId: string;
   }): Promise<ExportJobView> {
-    if (input.type !== 'payments') {
+    if (!Object.hasOwn(EXPORT_COLUMNS, input.type)) {
       throw new BadRequestException(`Unsupported export type: ${input.type}`);
     }
     if (input.format !== 'csv' && input.format !== 'pdf') {
@@ -213,7 +325,7 @@ export class ExportsService {
       id: randomUUID(),
       type: input.type,
       format: input.format,
-      filters: input.filters ?? {},
+      filters: { ...input.filters, merchantId: input.ownerId },
       ownerId: input.ownerId,
       status: 'queued',
       createdAt: now,
@@ -252,7 +364,7 @@ export class ExportsService {
     }
     return {
       filePath: record.filePath,
-      fileName: `payments-export-${record.id}.${record.format}`,
+      fileName: `${record.type}-export-${record.id}.${record.format}`,
     };
   }
 
@@ -271,11 +383,35 @@ export class ExportsService {
   /**
    * Build a signed, expiring download URL for a completed export.
    */
-  buildDownloadUrl(record: ExportRecord): string {
+  buildDownloadUrl(id: string, ownerId: string): string {
+    const record = this.requireOwned(id, ownerId);
     const expiresAt = Date.parse(record.expiresAt ?? new Date().toISOString());
     const token = this.signDownloadToken(record.id, record.ownerId, expiresAt);
     const base = this.publicBaseUrl.replace(/\/$/, '');
     return `${base}/v1/exports/${record.id}/download?expires=${expiresAt}&token=${token}`;
+  }
+
+  async openDownload(
+    ownerId: string,
+    id: string,
+    expires: number,
+    token: string,
+  ): Promise<{ stream: NodeJS.ReadableStream; filename: string; contentType: string }> {
+    const record = this.requireOwned(id, ownerId);
+    if (!Number.isFinite(expires) || Date.now() >= expires || !record.expiresAt || Date.parse(record.expiresAt) !== expires) {
+      throw new ForbiddenException('Download link has expired');
+    }
+    if (!this.verifyDownloadToken(id, ownerId, expires, token)) {
+      throw new ForbiddenException('Invalid download token');
+    }
+    if (record.status !== 'completed' || !record.filePath) {
+      throw new BadRequestException('Export is not ready for download');
+    }
+    return {
+      stream: createReadStream(record.filePath),
+      filename: `${record.type}-export-${record.id}.${record.format}`,
+      contentType: record.format === 'csv' ? 'text/csv; charset=utf-8' : 'application/pdf',
+    };
   }
 
   /**
@@ -333,23 +469,20 @@ export class ExportsService {
    */
   private async generateFile(record: ExportRecord): Promise<{ rowCount: number; filePath: string }> {
     if (!this.source) {
-      throw new Error('No payments export source configured');
+      throw new Error('No export source configured');
     }
 
     const chunks: string[] = [];
     let rowCount = 0;
-    let header: string[] | undefined;
+    const header = EXPORT_COLUMNS[record.type];
+    if (record.format === 'csv') {
+      chunks.push(header.map(sanitizeCsvCell).join(',') + '\n');
+    }
 
-    for await (const batch of this.source.streamPayments(record.filters, this.batchSize)) {
+    for await (const batch of this.source.streamRows(record.type, record.filters, this.batchSize)) {
       for (const row of batch) {
-        if (!header) {
-          header = Object.keys(row);
-          if (record.format === 'csv') {
-            chunks.push(header.map((h) => this.csvCell(h)).join(',') + '\n');
-          }
-        }
         if (record.format === 'csv') {
-          chunks.push(header.map((h) => this.csvCell(row[h])).join(',') + '\n');
+          chunks.push(header.map((column) => sanitizeCsvCell(row[column])).join(',') + '\n');
         } else {
           chunks.push(JSON.stringify(row));
         }
@@ -395,7 +528,7 @@ export class ExportsService {
     if (record.rowCount !== undefined) view.rowCount = record.rowCount;
     if (record.error !== undefined) view.error = record.error;
     if (record.status === 'completed' && record.expiresAt) {
-      view.downloadUrl = this.buildDownloadUrl(record);
+      view.downloadUrl = this.buildDownloadUrl(record.id, record.ownerId);
       view.expiresAt = record.expiresAt;
     }
     return view;
@@ -411,12 +544,4 @@ export class ExportsService {
       .digest('hex');
   }
 
-  private csvCell(value: unknown): string {
-    if (value === null || value === undefined) return '';
-    const str = String(value);
-    if (/[",\n\r]/.test(str)) {
-      return `"${str.replace(/"/g, '""')}"`;
-    }
-    return str;
-  }
 }

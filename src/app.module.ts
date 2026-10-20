@@ -1,4 +1,5 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { DatabaseModule } from './modules/database/database.module';
 import { HealthModule } from './modules/health/health.module';
@@ -24,6 +25,7 @@ import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { SessionsModule } from './modules/sessions/sessions.module';
 import { CheckoutSessionsModule } from './modules/checkout-sessions/checkout-sessions.module';
 import { SecurityHeadersMiddleware } from './common/middleware/security-headers.middleware';
+import { ETagInterceptor } from './common/interceptors/etag.interceptor';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { EventsModule } from './modules/events/events.module';
 import { ReportsModule } from './modules/reports/reports.module';
@@ -78,7 +80,13 @@ import { AdminMetricsModule } from './modules/admin/admin-metrics.module';
     TeamModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: ETagInterceptor,
+    },
+  ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

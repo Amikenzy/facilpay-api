@@ -228,6 +228,9 @@ Environment variables:
 - [Rates](docs/RATES.md) — currency rates and conversion
 - [Stellar](docs/STELLAR.md) — Stellar network integration
 - [Two-Factor Auth](docs/TWO_FACTOR_AUTH.md) — 2FA implementation
+- [WebAuthn](docs/WEBAUTHN.md) — passkey registration and authentication
 - [Password Reset](docs/PASSWORD_RESET.md) — password reset flow
-- [Observability](docs/OBSERVABILITY.md) — metrics, tracing, and structured logging
+- [Customers](docs/CUSTOMERS.md) — customer CRUD and payment history
+- [Checkout Sessions](docs/CHECKOUT_SESSIONS.md) — hosted checkout sessions
+- [Exports](docs/EXPORTS.md) — background export jobs
 - [Environment](docs/ENVIRONMENT.md) — environment variable reference

@@ -28,6 +28,13 @@ export const WEBHOOK_EVENT_TYPES = [
   'settlement.completed',
   'settlement.failed',
   'recurring.trial_ending',
+  'recurring.charge_succeeded',
+  'recurring.charge_failed',
+  'recurring.paused',
+  'recurring.cancelled',
+  'payout.created',
+  'payout.completed',
+  'payout.failed',
 ] as const;
 
 export type WebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[number];

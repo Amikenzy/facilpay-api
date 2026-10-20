@@ -216,6 +216,7 @@ Environment variables:
 - [Refunds](docs/REFUNDS.md) — refund system and maker-checker approval flow
 - [Disputes](docs/DISPUTES.md) — dispute lifecycle and evidence uploads
 - [Webhooks](docs/WEBHOOKS.md) — webhook endpoints and event types
+- [Events](docs/EVENTS.md) — Events API, event object schema, filters, and pagination
 - [RBAC](docs/RBAC.md) — role-based access control
 - [Audit Log](docs/AUDIT_LOG.md) — audit logging
 - [Settlements](docs/SETTLEMENTS.md) — settlement processing

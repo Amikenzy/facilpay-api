@@ -21,9 +21,11 @@ import { EmailNotificationService } from '../notifications/email-notification.se
 import { UsersService } from '../users/users.service';
 import { ReplayWebhooksDto } from './dto/replay-webhooks.dto';
 import { WebhookReplay } from './entities/webhook-replay.entity';
+import { validateHeaders } from './header-security';
 
 @Injectable()
 export class WebhooksService {
+  private readonly statsCache = new Map<string, { expiresAt: number; value: object }>();
   private readonly logger: Logger;
   private readonly disableFailureThreshold: number;
   private readonly disableTimeWindowHours: number;
@@ -51,6 +53,7 @@ export class WebhooksService {
   }
 
   async create(dto: CreateWebhookEndpointDto, merchantId: string): Promise<WebhookEndpoint> {
+    if (dto.headers !== undefined) validateHeaders(dto.headers);
     const secret = `whsec_${randomBytes(32).toString('hex')}`;
     const apiVersion = dto.apiVersion && isValidApiVersion(dto.apiVersion)
       ? dto.apiVersion
@@ -74,6 +77,7 @@ export class WebhooksService {
     merchantId: string,
   ): Promise<WebhookEndpoint> {
     const endpoint = await this.findOwned(id, merchantId);
+    if (dto.headers !== undefined) validateHeaders(dto.headers);
     Object.assign(endpoint, dto);
     const updated = await this.repo.save(endpoint);
     this.logger.info({ endpointId: id, merchantId }, 'Webhook endpoint updated');
@@ -391,6 +395,38 @@ export class WebhooksService {
       succeeded,
       failed,
     };
+  }
+
+  async getStats(id: string, merchantId: string) {
+    await this.findOwned(id, merchantId);
+    const now = Date.now();
+    const cached = this.statsCache.get(id);
+    if (cached && cached.expiresAt > now) return cached.value;
+    const windows: Record<string, object> = {};
+    for (const [window, hours] of [['24h', 24], ['7d', 168]] as const) {
+      const row = await this.deliveryRepo.createQueryBuilder('delivery')
+        .select('COUNT(*)', 'total')
+        .addSelect("COUNT(*) FILTER (WHERE delivery.status = 'success')", 'succeeded')
+        .addSelect("COUNT(*) FILTER (WHERE delivery.status IN ('failed', 'dead-letter'))", 'failures')
+        .addSelect('percentile_cont(0.50) WITHIN GROUP (ORDER BY delivery.latencyMs)', 'p50')
+        .addSelect('percentile_cont(0.95) WITHIN GROUP (ORDER BY delivery.latencyMs)', 'p95')
+        .where('delivery.endpointId = :id', { id })
+        .andWhere('delivery.lastAttemptAt >= :since', { since: new Date(now - hours * 3600000) })
+        .andWhere('delivery.lastAttemptAt <= :until', { until: new Date(now) })
+        .andWhere('delivery.status != :pending', { pending: WebhookDeliveryStatus.PENDING })
+        .getRawOne();
+      const total = Number(row?.total ?? 0);
+      const succeeded = Number(row?.succeeded ?? 0);
+      windows[window] = {
+        total, succeeded, failures: Number(row?.failures ?? 0), successRate: total ? succeeded / total : 0,
+        p50LatencyMs: row?.p50 == null ? null : Number(row.p50), p95LatencyMs: row?.p95 == null ? null : Number(row.p95),
+      };
+    }
+    const value = { endpointId: id, windows };
+    for (const [key, entry] of this.statsCache) if (entry.expiresAt <= now) this.statsCache.delete(key);
+    if (this.statsCache.size >= 10000) this.statsCache.delete(this.statsCache.keys().next().value!);
+    this.statsCache.set(id, { expiresAt: now + 60000, value });
+    return value;
   }
 
   private async findOwned(id: string, merchantId: string): Promise<WebhookEndpoint> {

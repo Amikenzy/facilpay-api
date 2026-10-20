@@ -27,6 +27,7 @@ import {
   ApiInternalServerErrorResponse,
   ApiResponse,
 } from '@nestjs/swagger';
+import { maskEndpoint } from './header-security';
 import { WebhooksService } from './webhooks.service';
 import { CreateWebhookEndpointDto } from './dto/create-webhook-endpoint.dto';
 import { UpdateWebhookEndpointDto } from './dto/update-webhook-endpoint.dto';
@@ -91,7 +92,7 @@ export class WebhooksController {
     @Body() dto: CreateWebhookEndpointDto,
     @CurrentUser() user: User,
   ): Promise<WebhookEndpoint> {
-    return this.webhooksService.create(dto, user.id);
+    return this.webhooksService.create(dto, user.id).then(maskEndpoint);
   }
 
   @Get()
@@ -119,7 +120,7 @@ export class WebhooksController {
   })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT.' })
   findAll(@CurrentUser() user: User): Promise<WebhookEndpoint[]> {
-    return this.webhooksService.findAll(user.id);
+    return this.webhooksService.findAll(user.id).then(endpoints => endpoints.map(maskEndpoint));
   }
 
   @Patch(':id')
@@ -171,7 +172,7 @@ export class WebhooksController {
     @Body() dto: UpdateWebhookEndpointDto,
     @CurrentUser() user: User,
   ): Promise<WebhookEndpoint> {
-    return this.webhooksService.update(id, dto, user.id);
+    return this.webhooksService.update(id, dto, user.id).then(maskEndpoint);
   }
 
   @Delete(':id')
@@ -297,7 +298,7 @@ export class WebhooksController {
     @Param('id') id: string,
     @CurrentUser() user: User,
   ): Promise<WebhookEndpoint> {
-    return this.webhooksService.rotateSecret(id, user.id);
+    return this.webhooksService.rotateSecret(id, user.id).then(maskEndpoint);
   }
 
   @Post('deliveries/:deliveryId/retry')
@@ -357,6 +358,12 @@ export class WebhooksController {
     return this.webhooksService.getReplayProgress(jobId, user.id);
   }
 
+  @Get(':id/stats')
+  @ApiOperation({ summary: 'Delivery health over 24 hours and 7 days', description: 'Success rate is a fraction of attempted deliveries. Latencies are milliseconds for the latest attempt per delivery; pending deliveries are excluded. Cached for 60 seconds.' })
+  getStats(@Param('id') id: string, @CurrentUser() user: User) {
+    return this.webhooksService.getStats(id, user.id);
+  }
+
   @Post(':id/enable')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -378,6 +385,6 @@ export class WebhooksController {
     @Param('id') id: string,
     @CurrentUser() user: User,
   ): Promise<WebhookEndpoint> {
-    return this.webhooksService.reenableEndpoint(id, user.id);
+    return this.webhooksService.reenableEndpoint(id, user.id).then(maskEndpoint);
   }
 }

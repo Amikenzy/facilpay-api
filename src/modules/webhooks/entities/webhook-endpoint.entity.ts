@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { CURRENT_API_VERSION } from '../payload-serializers/registry';
+import { encryptedHeadersTransformer } from '../header-security';
 
 export const WEBHOOK_EVENT_TYPES = [
   'payment.created',
@@ -42,6 +43,10 @@ export type WebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[number];
 @Entity('webhook_endpoints')
 @Index('idx_webhook_endpoints_merchant', ['merchantId'])
 export class WebhookEndpoint {
+  @Column({ type: 'jsonb', nullable: true, transformer: encryptedHeadersTransformer })
+  @ApiPropertyOptional({ description: 'Custom delivery headers; values are masked in responses' })
+  headers: Record<string, string> | null;
+
   @PrimaryGeneratedColumn('uuid')
   @ApiProperty({ example: '123e4567-e89b-12d3-a456-426614174000' })
   id: string;

@@ -6,6 +6,8 @@ FacilPay delivers real-time HTTP POST notifications to merchant-registered endpo
 
 All webhook management endpoints live under `/v1/webhooks` and require a valid JWT.
 
+> **Related:** Every webhook delivery is backed by a persisted event record. You can query, filter, and paginate these records directly via the [Events API](EVENTS.md).
+
 ## Supported Event Types
 
 | Event                    | Fired when                                   |

@@ -146,6 +146,50 @@ export class InvoicesService {
     return this.invoiceRepository.save(invoice);
   }
 
+  async duplicate(merchantId: string, id: string): Promise<Invoice> {
+    const source = await this.findOne(merchantId, id);
+    const runner = this.dataSource.createQueryRunner();
+    await runner.connect();
+    await runner.startTransaction();
+    try {
+      await runner.query('SELECT pg_advisory_xact_lock(hashtext($1))', [merchantId]);
+      const result = await runner.query(
+        'SELECT COALESCE(MAX("number"), 0) + 1 AS "nextNumber" FROM "invoices" WHERE "merchantId" = $1',
+        [merchantId],
+      );
+      const number = Number(result[0].nextNumber);
+      const invoice = runner.manager.create(Invoice, {
+        merchantId,
+        number,
+        customerEmail: source.customerEmail,
+        customerName: source.customerName,
+        currency: source.currency,
+        subtotal: source.subtotal,
+        taxRate: source.taxRate,
+        taxAmount: source.taxAmount,
+        total: source.total,
+        dueDate: source.dueDate,
+        status: InvoiceStatus.DRAFT,
+        publicToken: randomBytes(32).toString('hex'),
+        lineItems: source.lineItems.map((item) => ({
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          amount: item.amount,
+          productId: item.productId,
+        }) as InvoiceLineItem),
+      });
+      const saved = await runner.manager.save(invoice);
+      await runner.commitTransaction();
+      return saved;
+    } catch (error) {
+      await runner.rollbackTransaction();
+      throw error;
+    } finally {
+      await runner.release();
+    }
+  }
+
   async findPublic(token: string): Promise<Invoice> {
     const invoice = await this.invoiceRepository.findOne({
       where: { publicToken: token },

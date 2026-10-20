@@ -62,6 +62,7 @@ import { PaymentWebhookDto } from './dto/payment-webhook.dto';
 import { GetPaymentsDto, PaymentSortBy } from './dto/get-payments.dto';
 import { PaymentTimelineEvent } from './dto/payment-timeline.dto';
 import { Payment } from './payment.entity';
+import { CreatePaymentNoteDto } from './dto/create-payment-note.dto';
 import { Refund } from './refund.entity';
 import { SortOrder } from '../../common/dto/pagination.dto';
 import {
@@ -516,6 +517,36 @@ export class PaymentsController {
     return { ...payment, refunds };
   }
 
+  @Post(':id/notes')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearer')
+  @ApiOperation({
+    summary: 'Add an internal note to a payment',
+    description: 'Adds a merchant-only note that is not included in payment webhooks or payment detail responses.',
+  })
+  @ApiParam({ name: 'id', description: 'Payment UUID' })
+  @ApiBody({ type: CreatePaymentNoteDto })
+  @ApiCreatedResponse({ description: 'Internal payment note created.' })
+  @ApiNotFoundResponse({ description: 'Payment not found.' })
+  async createNote(
+    @Param('id') id: string,
+    @Body() dto: CreatePaymentNoteDto,
+    @Request() req: any,
+  ) {
+    return this.paymentsService.addPaymentNote(id, req.user.id, dto.body);
+  }
+
+  @Get(':id/notes')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearer')
+  @ApiOperation({ summary: 'List internal notes for a payment' })
+  @ApiParam({ name: 'id', description: 'Payment UUID' })
+  @ApiOkResponse({ description: 'Internal notes for the merchant payment.' })
+  @ApiNotFoundResponse({ description: 'Payment not found.' })
+  async getNotes(@Param('id') id: string, @Request() req: any) {
+    return this.paymentsService.getPaymentNotes(id, req.user.id);
+  }
+
   @Patch(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('bearer')
@@ -836,8 +867,11 @@ export class PaymentsController {
   })
   @ApiNotFoundResponse({ description: 'Payment not found.' })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid bearer token.' })
-  async getTimeline(@Param('id') id: string): Promise<PaymentTimelineEvent[]> {
-    return this.paymentsService.getTimeline(id);
+  async getTimeline(
+    @Param('id') id: string,
+    @Request() req: any,
+  ): Promise<PaymentTimelineEvent[]> {
+    return this.paymentsService.getTimeline(id, req.user.id);
   }
 
   // ──────────────────────────────────────────

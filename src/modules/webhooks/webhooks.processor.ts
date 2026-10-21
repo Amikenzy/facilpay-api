@@ -12,6 +12,7 @@ import { WebhooksService } from './webhooks.service';
 import { WebhookDelivery, WebhookDeliveryStatus } from './entities/webhook-delivery.entity';
 import { WebhookEndpoint } from './entities/webhook-endpoint.entity';
 import { validateHeaders } from './header-security';
+import { truncateResponseBody } from './delivery-response';
 import { performance } from 'perf_hooks';
 
 @Processor('webhooks', { limiter: { max: 10, duration: 1000 } })
@@ -82,6 +83,7 @@ export class WebhooksProcessor extends WorkerHost {
       delivery.status = WebhookDeliveryStatus.SUCCESS;
       delivery.latencyMs = Math.round(performance.now() - startedAt);
       delivery.lastResponseCode = response.status;
+      delivery.lastResponseBody = truncateResponseBody(response.data);
       delivery.lastError = null;
       await this.deliveryRepo.save(delivery);
 
@@ -96,10 +98,14 @@ export class WebhooksProcessor extends WorkerHost {
       return { success: true, statusCode: response.status };
     } catch (error: any) {
       delivery.latencyMs = Math.round(performance.now() - startedAt);
-      const statusCode = error?.response?.status ?? null;
+      const errorResponse = error?.response as
+        | { status?: number; data?: unknown }
+        | undefined;
+      const statusCode = errorResponse?.status ?? null;
       const errorMsg = error instanceof Error ? error.message : String(error);
 
       delivery.lastResponseCode = statusCode;
+      delivery.lastResponseBody = truncateResponseBody(errorResponse?.data);
       delivery.lastError = errorMsg;
 
       // Job options specify up to 6 attempts (initial + 5 retries)

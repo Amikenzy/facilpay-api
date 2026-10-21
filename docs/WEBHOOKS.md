@@ -186,6 +186,62 @@ Returns the full endpoint object with the new `secret`.
 | `403`  | Endpoint belongs to another merchant |
 | `404`  | Endpoint not found                   |
 
+---
+
+### List Delivery Attempts
+
+```
+GET /v1/webhooks/:id/deliveries
+```
+
+Lists the deliveries for one of your endpoints, newest first, so you can find a failing delivery and retry it by ID.
+
+**Query Parameters**
+
+| Parameter   | Type     | Description                                                        |
+| ----------- | -------- | ------------------------------------------------------------------ |
+| `page`      | `int`    | Page number (default `1`)                                          |
+| `limit`     | `int`    | Items per page (default `20`, max `100`)                           |
+| `status`    | `string` | `pending`, `success`, `failed` or `dead-letter`                    |
+| `eventType` | `string` | Only deliveries for this event, e.g. `payment.completed`           |
+| `from`      | ISO 8601 | Only deliveries created at or after this time                      |
+| `to`        | ISO 8601 | Only deliveries created at or before this time                     |
+
+**Response — `200 OK`**
+
+```json
+{
+  "data": [
+    {
+      "id": "5f0c7a3e-6b52-4f4e-9d3b-0d6f1c2f9a10",
+      "eventType": "payment.completed",
+      "status": "failed",
+      "attempts": 2,
+      "responseCode": 500,
+      "latencyMs": 182,
+      "responseBody": "{\"error\":\"upstream timeout\"}",
+      "error": "Request failed with status code 500",
+      "lastAttemptAt": "2026-01-26T10:00:05.000Z",
+      "createdAt": "2026-01-26T10:00:00.000Z"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "limit": 20
+}
+```
+
+`responseCode`, `latencyMs` and `responseBody` describe the latest attempt and are `null` until one has been made (or when the endpoint could not be reached). `responseBody` is cut to its first 1024 characters. Deliveries made before this field existed have no stored body.
+
+**Error Responses**
+
+| Status | Condition                                     |
+| ------ | --------------------------------------------- |
+| `400`  | Invalid filter, or `from` is after `to`       |
+| `401`  | Missing or invalid JWT                        |
+| `403`  | Endpoint belongs to another merchant          |
+| `404`  | Endpoint not found                            |
+
 ## Payload Envelope
 
 Every webhook delivery uses the same envelope:

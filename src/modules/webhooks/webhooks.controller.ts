@@ -38,6 +38,7 @@ import { User } from '../users/user.entity';
 import { EmailNotificationService } from '../notifications/email-notification.service';
 import { ConfigService } from '@nestjs/config';
 import { ReplayWebhooksDto } from './dto/replay-webhooks.dto';
+import { ListWebhookDeliveriesDto } from './dto/list-webhook-deliveries.dto';
 
 @ApiTags('webhooks')
 @ApiBearerAuth('bearer')
@@ -362,6 +363,58 @@ export class WebhooksController {
   @ApiOperation({ summary: 'Delivery health over 24 hours and 7 days', description: 'Success rate is a fraction of attempted deliveries. Latencies are milliseconds for the latest attempt per delivery; pending deliveries are excluded. Cached for 60 seconds.' })
   getStats(@Param('id') id: string, @CurrentUser() user: User) {
     return this.webhooksService.getStats(id, user.id);
+  }
+
+  @Get(':id/deliveries')
+  @ApiOperation({
+    summary: 'List delivery attempts for a webhook endpoint',
+    description:
+      "Returns the endpoint's deliveries, newest first, with status, attempts, response code, latency, event type " +
+      'and the first 1024 characters of the latest response body. Filter by `status`, `eventType`, `from` and `to`.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Webhook endpoint UUID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiOkResponse({
+    description: 'Paginated deliveries.',
+    schema: {
+      example: {
+        data: [
+          {
+            id: '5f0c7a3e-6b52-4f4e-9d3b-0d6f1c2f9a10',
+            eventType: 'payment.completed',
+            status: 'failed',
+            attempts: 2,
+            responseCode: 500,
+            latencyMs: 182,
+            responseBody: '{"error":"upstream timeout"}',
+            error: 'Request failed with status code 500',
+            lastAttemptAt: '2026-01-26T10:00:05.000Z',
+            createdAt: '2026-01-26T10:00:00.000Z',
+          },
+        ],
+        total: 1,
+        page: 1,
+        limit: 20,
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid filter, or `from` is after `to`.',
+  })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT.' })
+  @ApiForbiddenResponse({
+    description: 'Endpoint belongs to a different merchant.',
+  })
+  @ApiNotFoundResponse({ description: 'Webhook endpoint not found.' })
+  listDeliveries(
+    @Param('id') id: string,
+    @Query() dto: ListWebhookDeliveriesDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.webhooksService.listDeliveries(id, user.id, dto);
   }
 
   @Post(':id/enable')

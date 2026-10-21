@@ -29,6 +29,10 @@ export class Customer {
   @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, unknown> | null;
 
+  /** Set when this customer was merged into another; points at the survivor. */
+  @Column({ type: 'uuid', nullable: true })
+  mergedIntoId: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 

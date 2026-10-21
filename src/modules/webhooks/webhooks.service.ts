@@ -25,6 +25,8 @@ import { PaginatedResult } from '../../common/interfaces/paginated-result.interf
 import { WebhookReplay } from './entities/webhook-replay.entity';
 import { validateHeaders } from './header-security';
 
+export const DEFAULT_SECRET_GRACE_PERIOD_HOURS = 24;
+
 export interface WebhookDeliveryView {
   id: string;
   eventType: string | null;
@@ -60,6 +62,7 @@ export class WebhooksService {
   private readonly logger: Logger;
   private readonly disableFailureThreshold: number;
   private readonly disableTimeWindowHours: number;
+  private readonly secretGracePeriodHours: number;
 
   constructor(
     @InjectRepository(WebhookEndpoint)
@@ -81,6 +84,16 @@ export class WebhooksService {
     this.disableTimeWindowHours = Number(
       this.configService.get('WEBHOOK_DISABLE_TIME_WINDOW_HOURS', 24),
     );
+    const graceHours = Number(
+      this.configService.get(
+        'WEBHOOK_SECRET_GRACE_PERIOD_HOURS',
+        DEFAULT_SECRET_GRACE_PERIOD_HOURS,
+      ),
+    );
+    this.secretGracePeriodHours =
+      Number.isFinite(graceHours) && graceHours >= 0
+        ? graceHours
+        : DEFAULT_SECRET_GRACE_PERIOD_HOURS;
   }
 
   async create(dto: CreateWebhookEndpointDto, merchantId: string): Promise<WebhookEndpoint> {
@@ -121,11 +134,29 @@ export class WebhooksService {
     this.logger.info({ endpointId: id, merchantId }, 'Webhook endpoint deleted');
   }
 
-  async rotateSecret(id: string, merchantId: string): Promise<WebhookEndpoint> {
+  async rotateSecret(
+    id: string,
+    merchantId: string,
+    gracePeriodHours?: number,
+  ): Promise<WebhookEndpoint> {
     const endpoint = await this.findOwned(id, merchantId);
+    const graceHours = gracePeriodHours ?? this.secretGracePeriodHours;
+    if (graceHours > 0) {
+      // Keep the outgoing secret signing deliveries until the window closes.
+      endpoint.previousSecret = endpoint.secret;
+      endpoint.previousSecretExpiresAt = new Date(
+        Date.now() + graceHours * 3600_000,
+      );
+    } else {
+      endpoint.previousSecret = null;
+      endpoint.previousSecretExpiresAt = null;
+    }
     endpoint.secret = `whsec_${randomBytes(32).toString('hex')}`;
     const updated = await this.repo.save(endpoint);
-    this.logger.info({ endpointId: id, merchantId }, 'Webhook signing secret rotated');
+    this.logger.info(
+      { endpointId: id, merchantId, graceHours },
+      'Webhook signing secret rotated',
+    );
     return updated;
   }
 

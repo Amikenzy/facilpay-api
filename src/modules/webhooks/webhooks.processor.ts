@@ -5,7 +5,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
-import { createHmac } from 'crypto';
 import { AppLogger } from '../logger/logger.service';
 import { Logger } from 'pino';
 import { WebhooksService } from './webhooks.service';
@@ -13,6 +12,7 @@ import { WebhookDelivery, WebhookDeliveryStatus } from './entities/webhook-deliv
 import { WebhookEndpoint } from './entities/webhook-endpoint.entity';
 import { validateHeaders } from './header-security';
 import { truncateResponseBody } from './delivery-response';
+import { isPreviousSecretActive, signBody } from './webhook-signing';
 import { performance } from 'perf_hooks';
 
 @Processor('webhooks', { limiter: { max: 10, duration: 1000 } })
@@ -56,9 +56,9 @@ export class WebhooksProcessor extends WorkerHost {
     }
 
     const body = JSON.stringify(payload);
-    const signature = createHmac('sha256', endpoint.secret)
-      .update(body)
-      .digest('hex');
+    // During a rotation grace period this carries one digest per active secret.
+    const signature = signBody(body, endpoint);
+    await this.dropExpiredPreviousSecret(endpoint);
 
     delivery.attempts = attempt;
     delivery.lastAttemptAt = new Date();
@@ -128,6 +128,24 @@ export class WebhooksProcessor extends WorkerHost {
 
       await this.deliveryRepo.save(delivery);
       throw error; // Throw error to trigger BullMQ retry
+    }
+  }
+
+  /** Clears a previous secret whose grace period has ended; never fails a delivery. */
+  private async dropExpiredPreviousSecret(
+    endpoint: WebhookEndpoint,
+  ): Promise<void> {
+    if (!endpoint.previousSecret || isPreviousSecretActive(endpoint)) return;
+    try {
+      await this.endpointRepo.update(endpoint.id, {
+        previousSecret: null,
+        previousSecretExpiresAt: null,
+      });
+    } catch {
+      this.logger.warn(
+        { endpointId: endpoint.id },
+        'Failed to clear expired previous webhook secret',
+      );
     }
   }
 

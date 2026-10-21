@@ -39,6 +39,7 @@ import { EmailNotificationService } from '../notifications/email-notification.se
 import { ConfigService } from '@nestjs/config';
 import { ReplayWebhooksDto } from './dto/replay-webhooks.dto';
 import { ListWebhookDeliveriesDto } from './dto/list-webhook-deliveries.dto';
+import { RotateWebhookSecretDto } from './dto/rotate-webhook-secret.dto';
 
 @ApiTags('webhooks')
 @ApiBearerAuth('bearer')
@@ -261,9 +262,14 @@ export class WebhooksController {
   @ApiOperation({
     summary: 'Rotate the signing secret for a webhook endpoint',
     description:
-      'Generates a new signing secret for an existing webhook endpoint. The previous secret stops validating new deliveries immediately. The new secret is returned exactly once in this response — store it securely, as it cannot be retrieved again.',
+      'Generates a new signing secret for an existing webhook endpoint. For a grace period (default 24 hours, ' +
+      'set `gracePeriodHours` between 0 and 168) deliveries are signed with both the new and the previous secret: ' +
+      '`X-FacilPay-Signature` then holds two comma-separated digests, new secret first, and receivers should accept ' +
+      'the delivery if any of them verifies. Send `gracePeriodHours: 0` to switch secrets immediately. ' +
+      'The new secret is returned exactly once in this response — store it securely, as it cannot be retrieved again.',
   })
   @ApiParam({ name: 'id', description: 'Webhook endpoint UUID', example: '123e4567-e89b-12d3-a456-426614174000' })
+  @ApiBody({ type: RotateWebhookSecretDto, required: false })
   @ApiOkResponse({
     description: 'Signing secret rotated.',
     type: WebhookEndpoint,
@@ -275,6 +281,8 @@ export class WebhooksController {
         events: ['payment.created', 'payment.completed'],
         isActive: true,
         secret: 'whsec_newsecret123...',
+        previousSecret: '********',
+        previousSecretExpiresAt: '2026-01-27T12:00:00.000Z',
         createdAt: '2026-01-26T10:00:00.000Z',
         updatedAt: '2026-01-26T12:00:00.000Z',
       },
@@ -297,9 +305,12 @@ export class WebhooksController {
   })
   rotateSecret(
     @Param('id') id: string,
+    @Body() dto: RotateWebhookSecretDto,
     @CurrentUser() user: User,
   ): Promise<WebhookEndpoint> {
-    return this.webhooksService.rotateSecret(id, user.id).then(maskEndpoint);
+    return this.webhooksService
+      .rotateSecret(id, user.id, dto?.gracePeriodHours)
+      .then(maskEndpoint);
   }
 
   @Post('deliveries/:deliveryId/retry')

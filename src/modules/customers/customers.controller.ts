@@ -66,7 +66,7 @@ export class CustomersController {
   @ApiOperation({
     summary: 'List customers',
     description:
-      'Returns a paginated list of active customers owned by the authenticated merchant. Search is a case-insensitive partial match against email or name.',
+      'Returns a paginated list of active customers owned by the authenticated merchant. Search is a case-insensitive partial match against email or name. Use `tag` to return only customers carrying that tag.',
   })
   @ApiOkResponse({
     description: 'Paginated customer list.',
@@ -80,6 +80,7 @@ export class CustomersController {
             name: 'Jane Doe',
             phone: '+1-555-0100',
             metadata: { tier: 'gold' },
+            tags: ['vip', 'wholesale'],
             createdAt: '2026-09-25T10:00:00.000Z',
             updatedAt: '2026-09-25T10:00:00.000Z',
             deletedAt: null,

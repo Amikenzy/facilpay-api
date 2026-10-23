@@ -25,6 +25,7 @@ export class CustomersService {
       name: this.normalizeNullableString(dto.name),
       phone: this.normalizeNullableString(dto.phone),
       metadata: dto.metadata ?? null,
+      tags: this.normalizeTags(dto.tags),
     });
 
     return this.saveWithoutDuplicateEmail(customer);
@@ -47,6 +48,12 @@ export class CustomersService {
         '(customer.email ILIKE :search OR customer.name ILIKE :search)',
         { search: `%${search}%` },
       );
+    }
+
+    const tag = dto.tag?.trim().toLowerCase();
+    if (tag) {
+      // `@>` is served by the GIN index on customers.tags.
+      query.andWhere('customer.tags @> ARRAY[:tag]::text[]', { tag });
     }
 
     const [data, total] = await query
@@ -92,6 +99,9 @@ export class CustomersService {
     if (dto.metadata !== undefined) {
       customer.metadata = dto.metadata;
     }
+    if (dto.tags !== undefined) {
+      customer.tags = this.normalizeTags(dto.tags);
+    }
 
     return this.saveWithoutDuplicateEmail(customer);
   }
@@ -103,6 +113,13 @@ export class CustomersService {
 
   private normalizeEmail(email: string): string {
     return email.trim().toLowerCase();
+  }
+
+  private normalizeTags(tags: string[] | undefined): string[] {
+    const normalized = (tags ?? [])
+      .map((tag) => tag.trim().toLowerCase())
+      .filter((tag) => tag.length > 0);
+    return [...new Set(normalized)];
   }
 
   private normalizeNullableString(

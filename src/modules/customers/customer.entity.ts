@@ -29,9 +29,9 @@ export class Customer {
   @Column({ type: 'jsonb', nullable: true })
   metadata: Record<string, unknown> | null;
 
-  /** Set when this customer was merged into another; points at the survivor. */
-  @Column({ type: 'uuid', nullable: true })
-  mergedIntoId: string | null;
+  @Index('IDX_customers_tags', { synchronize: false })
+  @Column({ type: 'text', array: true, default: () => "'{}'" })
+  tags: string[];
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
